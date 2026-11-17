@@ -77,6 +77,14 @@ export interface RepoRec {
   labels: Map<string, LabelRec>;
   /** Counter for deterministic API-created commit timestamps. */
   commitSeq: number;
+  /** Bump-on-mutation counter for git wire state (objects + refs). */
+  gitVersion: number;
+  /** Cached upload-pack responses (fetch + ls-refs), keyed by request hash, valid at fetchCacheVersion. */
+  fetchCache: Map<string, Buffer>;
+  fetchCacheVersion: number;
+  /** Cached info/refs advertisements, keyed by service + protocol, valid at refsCacheVersion. */
+  refsCache: Map<string, Buffer>;
+  refsCacheVersion: number;
 }
 
 export class Store {
@@ -130,6 +138,11 @@ export class Store {
       nextNumber: 1,
       labels: new Map(),
       commitSeq: 0,
+      gitVersion: 0,
+      fetchCache: new Map(),
+      fetchCacheVersion: -1,
+      refsCache: new Map(),
+      refsCacheVersion: -1,
     };
     this.repos.set(Store.repoKey(owner, name), repo);
     return repo;
