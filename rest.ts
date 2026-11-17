@@ -223,6 +223,7 @@ export function commitOnBranch(repo: RepoRec, branch: string, treeOid: string, m
   });
   const oid = storeObject(repo, 'commit', data);
   repo.refs.set(ref, oid);
+  repo.gitVersion += 1;
   return oid;
 }
 
@@ -354,6 +355,7 @@ export function mergePullRequest(store: Store, repo: RepoRec, pr: IssueRec, meth
     // advances to the head; otherwise fall through to the squash shape.
     if (mergeBase(repo, headTip, baseTip) === baseTip) {
       repo.refs.set(`refs/heads/${pr.baseRef}`, headTip);
+      repo.gitVersion += 1;
       sha = headTip;
     } else {
       sha = commitOnBranch(repo, pr.baseRef, treeOid, `${pr.title} (#${pr.number})`);
@@ -370,6 +372,7 @@ export function mergePullRequest(store: Store, repo: RepoRec, pr: IssueRec, meth
     });
     sha = storeObject(repo, 'commit', data);
     repo.refs.set(`refs/heads/${pr.baseRef}`, sha);
+    repo.gitVersion += 1;
   } else {
     sha = commitOnBranch(repo, pr.baseRef, treeOid, `${pr.title} (#${pr.number})${pr.body === '' ? '' : `\n\n${pr.body}`}`);
   }
@@ -533,6 +536,7 @@ function repoRoute(ctx: Ctx, repo: RepoRec, rest: string[]): ApiResult {
         const branch = body['default_branch'] as string;
         if (repo.refs.size > 0 && branchTip(repo, branch) === null) throw new HttpError(422, `default branch "${branch}" does not exist`);
         repo.defaultBranch = branch;
+        repo.gitVersion += 1;
       }
       return { status: 200, json: repoJson(repo) };
     }
@@ -888,6 +892,7 @@ function gitRefsRoute(ctx: Ctx, repo: RepoRec, refPath: string): ApiResult {
     if (!repo.objects.has(sha)) throw new HttpError(422, 'Validation Failed: sha does not identify an object');
     if (repo.refs.has(ref)) throw new HttpError(422, 'Reference already exists');
     repo.refs.set(ref, sha);
+    repo.gitVersion += 1;
     const object = repo.objects.get(sha);
     return { status: 201, json: { ref, object: { sha, type: object?.type ?? 'commit' } } };
   }
@@ -904,6 +909,7 @@ function gitRefsRoute(ctx: Ctx, repo: RepoRec, refPath: string): ApiResult {
   if (method === 'DELETE') {
     if (!repo.refs.has(full)) throw notFound();
     repo.refs.delete(full);
+    repo.gitVersion += 1;
     return { status: 204 };
   }
   throw notFound();
