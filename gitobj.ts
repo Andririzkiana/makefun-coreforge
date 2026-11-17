@@ -23,7 +23,10 @@ export function hashObject(type: GitObjectType, data: Buffer): string {
 
 export function storeObject(repo: RepoRec, type: GitObjectType, data: Buffer): string {
   const oid = hashObject(type, data);
-  if (!repo.objects.has(oid)) repo.objects.set(oid, { type, data });
+  if (!repo.objects.has(oid)) {
+    repo.objects.set(oid, { type, data });
+    repo.gitVersion += 1;
+  }
   return oid;
 }
 
