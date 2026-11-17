@@ -14,6 +14,7 @@ import {
   pktFlush,
   pktLine,
   pktReader,
+  sha1Hex,
   storeObject,
   writePack,
   type GitObject,
@@ -83,6 +84,21 @@ export function infoRefs(repo: RepoRec, service: string, protocolV2: boolean): G
   if (service !== 'git-upload-pack' && service !== 'git-receive-pack') {
     return textResponse(400, `unknown service ${service}\n`);
   }
+  if (repo.refsCacheVersion !== repo.gitVersion) {
+    repo.refsCache.clear();
+    repo.refsCacheVersion = repo.gitVersion;
+  }
+  const key = `${service}:${protocolV2 ? 'v2' : 'v0'}`;
+  const hit = repo.refsCache.get(key);
+  if (hit !== undefined) {
+    return { status: 200, contentType: service === 'git-upload-pack' && protocolV2 ? 'application/x-git-upload-pack-advertisement' : `application/x-${service}-advertisement`, body: hit };
+  }
+  const result = infoRefsInner(repo, service, protocolV2);
+  if (result.status === 200) repo.refsCache.set(key, result.body);
+  return result;
+}
+
+function infoRefsInner(repo: RepoRec, service: string, protocolV2: boolean): GitResponse {
   if (protocolV2 && service === 'git-upload-pack') {
     const parts: Buffer[] = [
       pktLine('version 2\n'),
@@ -458,6 +474,24 @@ function fetchV0(repo: RepoRec, body: Buffer): Buffer {
 }
 
 export function uploadPack(repo: RepoRec, body: Buffer, protocolV2: boolean): GitResponse {
+  if (repo.fetchCacheVersion !== repo.gitVersion) {
+    repo.fetchCache.clear();
+    repo.fetchCacheVersion = repo.gitVersion;
+  }
+  const cacheKey = `${protocolV2 ? 'v2' : 'v0'}:${sha1Hex(body)}`;
+  const cached = repo.fetchCache.get(cacheKey);
+  if (cached !== undefined) {
+    return { status: 200, contentType: 'application/x-git-upload-pack-result', body: cached };
+  }
+  const result = uploadPackInner(repo, body, protocolV2);
+  if (result.status === 200) {
+    if (repo.fetchCache.size >= 256) repo.fetchCache.clear();
+    repo.fetchCache.set(cacheKey, result.body);
+  }
+  return result;
+}
+
+function uploadPackInner(repo: RepoRec, body: Buffer, protocolV2: boolean): GitResponse {
   try {
     if (protocolV2) {
       const request = parseV2Request(body);
@@ -563,6 +597,7 @@ function applyPushCommand(repo: RepoRec, command: PushCommand): { ref: string; o
     // Delete: the ref must be where the client thinks it is.
     if (current === oldOid || current === ZERO_OID) {
       repo.refs.delete(ref);
+      repo.gitVersion += 1;
       return { ref, ok: true };
     }
     return { ref, ok: false, reason: 'reference does not exist' };
@@ -572,6 +607,7 @@ function applyPushCommand(repo: RepoRec, command: PushCommand): { ref: string; o
   if (oldOid === ZERO_OID) {
     if (current !== ZERO_OID) return { ref, ok: false, reason: 'already exists' };
     repo.refs.set(ref, newOid);
+    repo.gitVersion += 1;
     return { ref, ok: true };
   }
   if (current !== oldOid) return { ref, ok: false, reason: 'non-fast-forward' };
@@ -580,5 +616,6 @@ function applyPushCommand(repo: RepoRec, command: PushCommand): { ref: string; o
     if (!isAncestor(repo, oldOid, newOid)) return { ref, ok: false, reason: 'non-fast-forward' };
   }
   repo.refs.set(ref, newOid);
+  repo.gitVersion += 1;
   return { ref, ok: true };
 }
